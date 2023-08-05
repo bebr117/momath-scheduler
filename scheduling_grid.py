@@ -11,8 +11,19 @@ from PyQt5.QtCore import Qt, pyqtSignal
 
 app = QApplication([])
 
-shifts=["Float","0","-1","Security","Greet","Tickets","Lunch","Coro","Trike","Gallery"]
+shifts=["None","Float","0","-1","Security","Greet","Tickets","Lunch","Coro","Trike","Gallery"]
 people=["Brian","Ross","Will"]
+shift_colors={
+    "":"white",
+    "0":"red",
+    "-1":"yellow",
+    "Security":"blue",
+    "Greet":"magenta",
+    "Lunch":"gray",
+    "Gallery":"green",
+    "Coro":"#F5F5DC",
+    "Trike":"cyan"
+}
 
 def minutes_to_hhmm(mins):
     hours = mins//60
@@ -49,13 +60,16 @@ class ShiftSelector(QWidget):
     # textboxChanged = pyqtSignal(str)
     durationChanged = pyqtSignal(str)
     
-    def __init__(self, person, start_time, shifts, durations):
+    def __init__(self, person, start_time, shifts, durations, shift_colors=dict(), max_width = 5):
         super(ShiftSelector, self).__init__()
         
         self.person = person
         self.start_time = start_time
         self.shifts = shifts
         self.durations = durations
+        self.shift_colors = shift_colors
+        if "" not in shift_colors:
+            shift_colors[""] = "white"
         
         self.active = True
         
@@ -111,7 +125,7 @@ class ShiftSelector(QWidget):
         
         self.setAutoFillBackground(True)
         palette = self.palette()
-        palette.setColor(QPalette.Window, QColor("white"))
+        palette.setColor(QPalette.Window, QColor("white")) # Magic Word
         self.setPalette(palette)
     
     # TODO: add color changing to shift_changed/textbox_changed 
@@ -120,8 +134,14 @@ class ShiftSelector(QWidget):
         if shift in self.shifts:
             self.shift_box.setCurrentText(shift)
         else:
-            self.shift_box.setCurrentText("Other")
+            self.shift_box.setCurrentText("Other") # Magic Word
             self.text_box.setText(shift)
+    
+    def get_shift(self):
+        if self.shift_box.currentText() == "Other":
+            return self.text_box.currentText()
+        else:
+            return self.shift_box.currentText()
     
     def shift_changed(self, shift):
         if shift == "Other":
@@ -131,19 +151,31 @@ class ShiftSelector(QWidget):
             self.text_box.setEnabled(False)
             self.text_box.setVisible(False)
             self.shiftChanged.emit(shift)
+        
+        self.change_color_by_shift(shift)
             
     def textbox_changed(self, text):
         self.shiftChanged.emit(text)
+        self.change_color_by_shift(text)
     
     def duration_changed(self, duration):
         self.durationChanged.emit(duration)
+    
+    def change_color_by_shift(self, shift):
+        color = QColor(shift_colors[""])
+        if shift in shift_colors:
+            color = QColor(shift_colors[shift])
+        palette = self.palette()
+        palette.setColor(QPalette.Window, color)
+        self.setPalette(palette)
 
 class CentralGrid(QWidget):
-    def __init__(self, schedule, shifts):
+    def __init__(self, schedule, shifts, shift_colors=dict()):
         super(CentralGrid, self).__init__()
         
         self.schedule = schedule
         self.shifts = shifts
+        self.shift_colors = shift_colors
         
         layout = QGridLayout()
         widget_grid = dict()
@@ -165,10 +197,11 @@ class CentralGrid(QWidget):
             for j in range(schedule.shape[1]):
                 person = schedule.columns[j]
                 
-                widget = ShiftSelector(person, time, shifts, durations)
+                widget = ShiftSelector(person, time, shifts, durations, shift_colors=shift_colors)
                 widget.set_shift(self.schedule[person][time])
                 
                 widget.shiftChanged.connect(partial(self.updateSchedule,schedule.columns[j],schedule.index[i]))
+                widget.shiftChanged.connect(lambda x : self.updateCounters())
                 layout.addWidget(widget, i+1, j+1)
                 widget_grid[person][time] = widget
         
@@ -177,19 +210,37 @@ class CentralGrid(QWidget):
         
         # Column shift counters
         colCounters = {p:QLabel("") for p in schedule.columns} # TODO just make the list of people an input to the grid
+        for l in colCounters.values():
+            l.setAutoFillBackground(True)
+            palette = l.palette()
+            palette.setColor(QPalette.Window, QColor("white"))
+            l.setPalette(palette)
         colShift = ShiftSelector(None, None, shifts, [])
         # colShift.shiftChanged.connect(updateCounters)
         layout.addWidget(colShift, main_height, 0)
         for i in range(schedule.shape[1]):
             layout.addWidget(colCounters[schedule.columns[i]],main_height,i+1)
+        
+        colShift.shiftChanged.connect(lambda x : self.updateCounters())
+        self.colShift = colShift
+        self.colCounters = colCounters
             
         # Row shift counters
         rowCounters = {t:QLabel("") for t in schedule.index} # TODO make the list of times an input as well?
+        for l in rowCounters.values():
+            l.setAutoFillBackground(True)
+            palette = l.palette()
+            palette.setColor(QPalette.Window, QColor("white"))
+            l.setPalette(palette)
         rowShift = ShiftSelector(None, None, shifts, [])
         # colShift.shiftChanged.connect(updateCounters)
         layout.addWidget(rowShift, 0, main_width)
         for i in range(schedule.shape[0]):
             layout.addWidget(rowCounters[schedule.index[i]],i+1,main_width)
+        
+        rowShift.shiftChanged.connect(lambda x : self.updateCounters())
+        self.rowShift = rowShift
+        self.rowCounters = rowCounters
         
         # TEMPORARY: add a "print" button in the top-left
         # Maybe change this to a save button later?
@@ -202,13 +253,30 @@ class CentralGrid(QWidget):
         self.layout = layout
         self.widget_grid = widget_grid
         self.setLayout(layout)
+        
+        self.updateCounters()
     
     def updateSchedule(self, person, time, shift):
         self.schedule[person][time] = shift
+        # TODO update counters here as well
         # TODO add something about durations?
         
-    # def updateCounters(self):
-    #     for 
+    def updateCounters(self):
+        colShift = self.colShift.get_shift()
+        for p in self.colCounters:
+            val_counts = self.schedule[p].value_counts()
+            if colShift in val_counts:
+                self.colCounters[p].setText(repr(val_counts[colShift]))
+            else:
+                self.colCounters[p].setText("0")
+        
+        rowShift = self.rowShift.get_shift()
+        for t in self.rowCounters:
+            val_counts = self.schedule.loc[t].value_counts()
+            if rowShift in val_counts:
+                self.rowCounters[t].setText(repr(val_counts[rowShift]))
+            else:
+                self.rowCounters[t].setText("0")
         
     def printSchedule(self):
         print(self.schedule)
