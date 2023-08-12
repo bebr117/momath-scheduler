@@ -3,57 +3,13 @@ import numpy as np
 from functools import partial
 
 from PyQt5.QtWidgets import QApplication
-from PyQt5.QtWidgets import QWidget, QMainWindow, QComboBox, QLabel, QPushButton, QLineEdit
+from PyQt5.QtWidgets import QWidget, QComboBox, QLabel, QPushButton, QLineEdit
 from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QGridLayout
 from PyQt5.QtWidgets import QToolBar, QAction, QStatusBar
 from PyQt5.QtGui import QIcon, QPalette, QColor
 from PyQt5.QtCore import Qt, pyqtSignal
 
-app = QApplication([])
-
-shifts=["None","Float","0","-1","Security","Greet","Tickets","Lunch","Coro","Trike","Gallery"]
-people=["Brian","Ross","Will"]
-shift_colors={
-    "":"white",
-    "0":"red",
-    "-1":"yellow",
-    "Security":"blue",
-    "Greet":"magenta",
-    "Lunch":"gray",
-    "Gallery":"green",
-    "Coro":"#F5F5DC",
-    "Trike":"cyan"
-}
-
-def minutes_to_hhmm(mins):
-    hours = mins//60
-    minutes = mins%60
-    return f'{hours:02d}:{minutes:02d}'
-
-def minutes_to_12h(mins):
-    mins%=1440
-    
-    hours = mins//60
-    minutes = mins%60
-    if hours == 0:
-        h = "12"
-        ampm = "AM"
-    elif hours < 12:
-        h = f'{hours:02d}'
-        ampm = "AM"
-    elif hours == 12:
-        h = "12"
-        ampm = "PM"
-    else:
-        h2 = hours-12
-        h = f'{h2:02d}'
-        ampm = "PM"
-    
-    return h + f':{minutes:02d}' + ' ' + ampm
-
-start_time = 600
-end_time = 1020
-default_schedule = pd.DataFrame("Float", index=range(start_time,end_time,30),columns=people)
+from helpers import *
 
 class ShiftSelector(QWidget):
     shiftChanged = pyqtSignal(str)
@@ -162,9 +118,9 @@ class ShiftSelector(QWidget):
         self.durationChanged.emit(duration)
     
     def change_color_by_shift(self, shift):
-        color = QColor(shift_colors[""])
-        if shift in shift_colors:
-            color = QColor(shift_colors[shift])
+        color = QColor(self.shift_colors[""])
+        if shift in self.shift_colors:
+            color = QColor(self.shift_colors[shift])
         palette = self.palette()
         palette.setColor(QPalette.Window, color)
         self.setPalette(palette)
@@ -280,19 +236,3 @@ class CentralGrid(QWidget):
         
     def printSchedule(self):
         print(self.schedule)
-
-class MainWindow(QMainWindow):
-    def __init__(self):
-        super(MainWindow, self).__init__()
-        
-        self.setWindowTitle("MoMath Schedule Manager")
-        
-        widget = CentralGrid(default_schedule, shifts)
-        
-        self.setCentralWidget(widget)
-        # TODO change default margins
-
-w = MainWindow()
-w.show()
-
-app.exec()
