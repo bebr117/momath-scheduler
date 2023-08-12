@@ -8,7 +8,7 @@ from helpers import *
 app = QApplication([])
 
 shifts=["None","Float","0","-1","Security","Greet","Tickets","Lunch","Coro","Trike","Gallery"]
-people=["Brian","Ross","Will"]
+people=["Brian","Ross","Will","Alexandra","Max","Chella","Chloe","Rohan","Nhi","Nolan","Sook"]
 shift_colors={
     "":"white",
     "0":"red",

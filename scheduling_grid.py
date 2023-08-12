@@ -16,23 +16,25 @@ class ShiftSelector(QWidget):
     # textboxChanged = pyqtSignal(str)
     durationChanged = pyqtSignal(str)
     
-    def __init__(self, person, start_time, shifts, durations, shift_colors=dict(), max_width = 5):
+    def __init__(self, person, start_time, shifts, durations=[], shift_colors=dict(), other_word = "Other"):
+        # TODO add scrolling features
         super(ShiftSelector, self).__init__()
         
         self.person = person
         self.start_time = start_time
         self.shifts = shifts
         self.durations = durations
-        self.shift_colors = shift_colors
         if "" not in shift_colors:
             shift_colors[""] = "white"
+        self.shift_colors = shift_colors
+        self.other_word = other_word
         
         self.active = True
         
         # shift dropdown
         shift_box = QComboBox()
         shift_box.addItems(shifts)
-        shift_box.addItem("Other")
+        shift_box.addItem(other_word)
         
         shift_box.currentTextChanged.connect(self.shift_changed)
         
@@ -90,17 +92,17 @@ class ShiftSelector(QWidget):
         if shift in self.shifts:
             self.shift_box.setCurrentText(shift)
         else:
-            self.shift_box.setCurrentText("Other") # Magic Word
+            self.shift_box.setCurrentText(self.other_word) # Magic Word
             self.text_box.setText(shift)
     
     def get_shift(self):
-        if self.shift_box.currentText() == "Other":
+        if self.shift_box.currentText() == self.other_word:
             return self.text_box.currentText()
         else:
             return self.shift_box.currentText()
     
     def shift_changed(self, shift):
-        if shift == "Other":
+        if shift == self.other_word:
             self.text_box.setEnabled(True)
             self.text_box.setVisible(True)
         else:
@@ -126,56 +128,92 @@ class ShiftSelector(QWidget):
         self.setPalette(palette)
 
 class CentralGrid(QWidget):
-    def __init__(self, schedule, shifts, shift_colors=dict()):
+    def __init__(self, schedule, shifts, shift_colors=dict(), max_width=-1, max_height=-1, bg_color = "#5C4033"):
         super(CentralGrid, self).__init__()
         
         self.schedule = schedule
         self.shifts = shifts
         self.shift_colors = shift_colors
         
-        layout = QGridLayout()
+        people = list(schedule.columns)
+        self.people = people
+        self.people_index = 0
+        times = list(schedule.index)
+        self.times = times
+        self.time_index = 0
+        
+        if max_width > 0:
+            self.max_width = min(max_width,len(people))
+        else:
+            self.max_width = len(people)
+            
+        if max_height > 0:
+            self.max_height = min(max_height,len(times))
+        else:
+            self.max_height = len(times)
+        
         widget_grid = dict()
+        name_widgets = dict()
+        time_widgets = dict()
         
         # Names at the top
         for i in range(schedule.shape[1]):
-            layout.addWidget(QLabel(schedule.columns[i]), 0, i+1)
-            widget_grid[schedule.columns[i]] = dict() # initialize the interior of the widget storage
+            name = people[i]
+            name_widget = QLabel(name)
+            name_widget.setAlignment(Qt.AlignCenter)
+            
+            name_widget.setAutoFillBackground(True)
+            palette = name_widget.palette()
+            palette.setColor(QPalette.Window, QColor("white"))
+            name_widget.setPalette(palette)
+            
+            name_widgets[name] = name_widget
+            
+            widget_grid[people[i]] = dict() # initialize the interior of the widget storage
         
         # Times at the left
         for i in range(schedule.shape[0]):
-            layout.addWidget(QLabel(minutes_to_12h(schedule.index[i])),i+1,0)
+            time = schedule.index[i]
+            formatted_time = minutes_to_12h(time)
+            time_widget = QLabel(formatted_time)
+            time_widget.setAlignment(Qt.AlignCenter)
+            
+            time_widget.setAutoFillBackground(True)
+            palette = time_widget.palette()
+            palette.setColor(QPalette.Window, QColor("white"))
+            time_widget.setPalette(palette)
+            
+            time_widgets[time] = time_widget
         
         # Dropdowns in the middle
-        for i in range(schedule.shape[0]):
-            time = schedule.index[i]
+        # TODO encapsulate the layout creation
+        for i in range(len(times)):
+            time = times[i]
             
-            durations = [repr(30+schedule.index[k]-time) for k in range(i,schedule.shape[0])] # this is very scuffed lol
-            for j in range(schedule.shape[1]):
-                person = schedule.columns[j]
+            durations = [repr(30+times[k]-time) for k in range(i,len(times))] # this is very scuffed lol
+            for j in range(len(people)):
+                person = people[j]
                 
                 widget = ShiftSelector(person, time, shifts, durations, shift_colors=shift_colors)
                 widget.set_shift(self.schedule[person][time])
                 
-                widget.shiftChanged.connect(partial(self.updateSchedule,schedule.columns[j],schedule.index[i]))
+                widget.shiftChanged.connect(partial(self.updateSchedule,person,time))
                 widget.shiftChanged.connect(lambda x : self.updateCounters())
-                layout.addWidget(widget, i+1, j+1)
                 widget_grid[person][time] = widget
         
-        main_height = schedule.shape[0]+1
-        main_width = schedule.shape[1]+1
+        main_height = self.max_height+1
+        main_width = self.max_width+1
         
         # Column shift counters
         colCounters = {p:QLabel("") for p in schedule.columns} # TODO just make the list of people an input to the grid
         for l in colCounters.values():
+            l.setAlignment(Qt.AlignCenter)
+            
             l.setAutoFillBackground(True)
             palette = l.palette()
             palette.setColor(QPalette.Window, QColor("white"))
             l.setPalette(palette)
         colShift = ShiftSelector(None, None, shifts, [])
-        # colShift.shiftChanged.connect(updateCounters)
-        layout.addWidget(colShift, main_height, 0)
-        for i in range(schedule.shape[1]):
-            layout.addWidget(colCounters[schedule.columns[i]],main_height,i+1)
         
         colShift.shiftChanged.connect(lambda x : self.updateCounters())
         self.colShift = colShift
@@ -184,15 +222,13 @@ class CentralGrid(QWidget):
         # Row shift counters
         rowCounters = {t:QLabel("") for t in schedule.index} # TODO make the list of times an input as well?
         for l in rowCounters.values():
+            l.setAlignment(Qt.AlignCenter)
+            
             l.setAutoFillBackground(True)
             palette = l.palette()
             palette.setColor(QPalette.Window, QColor("white"))
             l.setPalette(palette)
         rowShift = ShiftSelector(None, None, shifts, [])
-        # colShift.shiftChanged.connect(updateCounters)
-        layout.addWidget(rowShift, 0, main_width)
-        for i in range(schedule.shape[0]):
-            layout.addWidget(rowCounters[schedule.index[i]],i+1,main_width)
         
         rowShift.shiftChanged.connect(lambda x : self.updateCounters())
         self.rowShift = rowShift
@@ -200,21 +236,27 @@ class CentralGrid(QWidget):
         
         # TEMPORARY: add a "print" button in the top-left
         # Maybe change this to a save button later?
-        widget = QPushButton("Print")
-        widget.pressed.connect(self.printSchedule)
-        layout.addWidget(widget, 0, 0)
+        print_button = QPushButton("Print")
+        print_button.pressed.connect(self.printSchedule)
+        self.print_button = print_button
         
-        layout.setSpacing(5)
+        dpad = DPad()
+        dpad.directionPushed.connect(self.scroll)
         
-        self.layout = layout
         self.widget_grid = widget_grid
-        self.setLayout(layout)
+        self.name_widgets = name_widgets
+        self.time_widgets = time_widgets
         
+        self.setAutoFillBackground(True)
+        palette = self.palette()
+        palette.setColor(QPalette.Window, QColor(bg_color))
+        self.setPalette(palette)
+        
+        self.updateLayout(people[:self.max_width],times[:self.max_height])
         self.updateCounters()
     
     def updateSchedule(self, person, time, shift):
         self.schedule[person][time] = shift
-        # TODO update counters here as well
         # TODO add something about durations?
         
     def updateCounters(self):
@@ -233,6 +275,44 @@ class CentralGrid(QWidget):
                 self.rowCounters[t].setText(repr(val_counts[rowShift]))
             else:
                 self.rowCounters[t].setText("0")
+    
+    def updateLayout(self, people=None, times=None):
+        if people == None:
+            people = self.people[self.people_index:self.people_index+max_width]
+        if times == None:
+            times = self.times[self.time_index:self.time_index+max_width]
         
+        newLayout = QGridLayout()
+        main_width = len(people)
+        main_height = len(times)
+        
+        newLayout.addWidget(self.print_button,0,0)
+        newLayout.addWidget(self.rowShift,0,main_width+1)
+        newLayout.addWidget(self.colShift,main_height+1,0)
+        for i in range(len(times)):
+            newLayout.addWidget(self.time_widgets[times[i]],i+1,0)
+            newLayout.addWidget(self.rowCounters[times[i]],i+1,main_width+1)
+        for i in range(len(people)):
+            newLayout.addWidget(self.name_widgets[people[i]],0,i+1)
+            newLayout.addWidget(self.colCounters[people[i]],main_height+1,i+1)
+        
+        for i in range(len(times)):
+            for j in range(len(people)):
+                newLayout.addWidget(self.widget_grid[people[j]][times[i]],i+1,j+1)
+                
+        if self.people_index+self.max_width < len(self.people):
+            pass # TODO add an arrow
+        
+        newLayout.setSpacing(5)
+        # self.layout_dp[(people,times)] = newLayout # does this even work???
+        if self.layout():
+            QWidget().setLayout(self.layout()) 
+            # apparently this basically deletes the old layout as long as we dont keep the reference to it
+            # thanks python garbage collection!
+        self.setLayout(newLayout)
+    
+    def scroll(self, direction):
+        pass
+    
     def printSchedule(self):
         print(self.schedule)
